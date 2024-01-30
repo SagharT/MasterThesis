@@ -14,7 +14,7 @@ rule all:
     input:
         expand(config["path_to_csv_output"] + "{sample}_features.csv", sample=samples_to_analyse),
         expand(config["qc_summary_folder_path"]+"{s}.mzmlsummary.txt", s=samples_to_analyse),
-        expand(config["qc_summary_folder_path"]+"{s}.mzidsummary.txt", s=samples_to_analyse), #peptide identification (MSGFPlus)
+#        expand(config["qc_summary_folder_path"]+"{s}.mzidsummary.txt", s=samples_to_analyse), #peptide identification (MSGFPlus)
         expand(config["qc_summary_folder_path"]+"{s}.featuresummary.txt", s=samples_to_analyse), #feature detection (Dinosaur)
         expand(config["path_to_tsv_output"] + "{sample}_result.tsv", sample=samples_to_analyse),
         expand(config["path_to_tsv_output"] + "{sample}.tsv", sample=samples_to_analyse)
@@ -34,25 +34,26 @@ rule convert_raw_file:
         "-o /outdata -v --filter=\"peakPicking true 2-\" /indata/{params.rawfile};"
         "sudo chmod -R ou+w {config[path_to_mzml]}"
 
-# Peptide identification
-rule peptide_identification:
-    input:
-        mzml = config["path_to_mzml"]+"{s}.mzML",
-        db = config["fasta"]
-    params:
-        sample = "{s}",
-    output:
-        config["peptide_id_output"]+"{s}.mzid"
-    shell:
-       """
-       java {config[max_heap_size]} -Djava.awt.headless=true \
-         -jar {config[msgfplus_jar_path]} \
-         {config[msgfplus_extra]} \
-         -mod {config[msgfplus_mod_path]} \
-         -d {input.db} \
-         -o {output} \
-         -s {input.mzml}
-       """
+## This is just for DDA: Peptide identification
+#rule peptide_identification:
+#    input:
+#        mzml = config["path_to_mzml"]+"{s}.mzML",
+#        db = config["fasta"]
+#    params:
+#        sample = "{s}",
+#    output:
+#        config["peptide_id_output"]+"{s}.mzid"
+#    shell:
+#       """
+#       java {config[max_heap_size]} -Djava.awt.headless=true \
+#
+#         -jar {config[msgfplus_jar_path]} \
+#        {config[msgfplus_extra]} \
+#         -mod {config[msgfplus_mod_path]} \
+#         -d {input.db} \
+#         -o {output} \
+#         -s {input.mzml}
+#       """
 # Feature extraction, Dinosaur
 rule feat_extraction:
     input:
