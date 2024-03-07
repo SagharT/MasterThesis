@@ -1,39 +1,44 @@
 # Edit these path to your path
 # Raw file conversion
-path_to_samples: "./RawFiles/"
-path_to_mzml: "./MzML/"
+path_to_samples: "RawFiles/DDA-files/"
+path_to_mzml: "20240226-DDAtest/MzML/"
 
 # Peptide identification
 fasta: "library/UP000005640_9606_2022_08_11_w_contaminants.fasta" 
 peptide_id_program: "msgfplus"
-peptide_id_output: "20240123/"
+peptide_id_output: "20240226-DDAtest/"
 max_heap_size: "-Xmx16g"
 # -jar
-#msgfplus_jar_path: "/home/ubuntu/FromDoris/snakemake/snakemake_proteomics/MSGFPlus.jar"
+msgfplus_jar_path: "/home/ubuntu/FromDoris/snakemake/snakemake_proteomics/MSGFPlus.jar"
 # -mod
-#msgfplus_mod_path: "/home/ubuntu/FromDoris/snakemake/snakemake_proteomics/MSGFPlus_Mods2.txt"
-#msgfplus_extra: "-t 10ppm -tda 1 -inst 3 -thread 10"
+msgfplus_mod_path: "/home/ubuntu/FromDoris/snakemake/snakemake_proteomics/MSGFPlus_Mods2.txt"
+msgfplus_extra: "-t 10ppm -tda 1 -inst 3 -thread 10"
 
 # Feature extraction Dinosaur
 dinosaur_jar_path: "/home/ubuntu/FromDoris/snakemake/Dinosaur-1.1.4.free.jar"
 dinosaur_params: "--concurrency=4"
-dinosaur_output_path: "20240123/"
+dinosaur_output_path: "20240226-DDAtest/"
 
 # Quality control
 qc_lcms_jar_path: "/home/ubuntu/FromDoris/snakemake/QC_LCMS.jar"
 # Path to where summaries should be saved, format path/to/folder/
-qc_summary_folder_path: "20240123/evosep/"
+qc_summary_folder_path: "20240226-DDAtest/evosep/"
 # Path to where the report should be saved, format path/to/folder/
-qc_report_path: "20240123/evosep/"
+qc_report_path: "20240226-DDAtest/evosep/"
 # FDR
 qc_fdr: "0.01"
 
 # mzML file parsing
-path_to_csv_output: "20240123/"
+path_to_csv_output: "20240226-DDAtest/MzML/"
 
 # DIA-NN
-path_to_tsv_output: "20240123/DiaNN/"
-path_to_result_output: "20240123/DiaNN/"
+path_to_tsv_output: "20240226-DDAtest/DiaNN/"
+path_to_result_output: "20240226-DDAtest/DiaNN/"
+
+# Report
+path_to_report: "20240226-DDAtest/report/"
+
+
 
 
 
