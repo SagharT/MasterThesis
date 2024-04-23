@@ -20,12 +20,26 @@ def analyze_isolation_window_target(file_path):
     # It is DIA if the pattern repeated at least 50 times
     if len(unique_numeric_values) < len(column.dropna()) / 50:
         print("DIA file.")
+        return "DIA file."
     else:
         print("DDA file.")
+        return "DDA file."
+
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("Usage: python script_name.py path_to_your_file.csv")
+    files = sys.argv[1:]  # Get all provided file paths
+    dia_files_count = 0
+
+    for file_path in files:
+        result = analyze_isolation_window_target(file_path)
+        if result == "DIA file.":
+            dia_files_count += 1
+
+    # Check if all provided files are DIA
+    if dia_files_count == len(files):
+        print("DIA file.")
+        sys.exit(0)  # Exit with status 0 to indicate all files are DIA
+    else:
+        print("DDA file.")
         sys.exit(1)
-    csvfile = sys.argv[1]
-    analyze_isolation_window_target(csvfile)
+    
