@@ -6,6 +6,8 @@ import matplotlib.pyplot as plt
 file_path = sys.argv[1]
 
 # Parse the XML file
+#The parse function reads the XML document from the file and creates a tree structure 
+#that represents the XML document.
 tree = ET.parse(file_path)
 root = tree.getroot()
 
@@ -41,8 +43,6 @@ for spectrum_result in root.findall('.//ns:SpectrumIdentificationResult', namesp
                 mz_values.append(float(spectrum_item.get('experimentalMassToCharge')))
                 retention_times.append(retention_time)
 
-# Output the collected information
-print(f'Collected {len(retention_times)} items meeting the QValue condition.')
 
 # Graph 1: Retention Time vs. M/Z Values for All Items
 plt.figure(figsize=(10, 6))
