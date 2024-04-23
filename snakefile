@@ -14,12 +14,13 @@ rule all:
     input:
         expand(config["path_to_csv_output"] + "{sample}_features.csv", sample=samples_to_analyse),
         expand(config["qc_summary_folder_path"]+"{sample}.mzmlsummary.txt", sample=samples_to_analyse),
-        expand(config["qc_summary_folder_path"]+"{sample}.mzidsummary.txt", sample=samples_to_analyse), #peptide identification (MSGFPlus)
+        #expand(config["qc_summary_folder_path"]+"{sample}.mzidsummary.txt", sample=samples_to_analyse), #peptide identification (MSGFPlus)
         expand(config["qc_summary_folder_path"]+"{sample}.featuresummary.txt", sample=samples_to_analyse), #feature detection (Dinosaur)
         #expand(config["path_to_tsv_output"] + "{sample}_result.tsv", sample=samples_to_analyse),
         #expand(config["path_to_tsv_output"] + "{sample}.tsv", sample=samples_to_analyse),
         expand(config["path_to_report"]+"{sample}.pdf", sample=samples_to_analyse),
-        config["path_to_report"] + "Comparison.pdf"
+        config["path_to_report"] + "Comparison.pdf",
+        config["path_to_report"]+ ".cleanup_complete"
         
 
 # Raw file conversion 
@@ -29,19 +30,42 @@ rule convert_raw_file:
     params:
         rawfile = "{sample}.raw"
     output:
-        #mzML = temp(config["path_to_mzml"] + "{mzML(sample)}"),
         mzML = config["path_to_mzml"] + "{sample}.mzML"
         
     shell:
-        "docker run --rm -v ./{config[path_to_samples]}:/indata "
-        "-v ./{config[path_to_mzml]}:/outdata chambm/pwiz-skyline-i-agree-to-the-vendor-licenses wine msconvert "
-        "-o /outdata -v --filter=\"peakPicking true 2-\" /indata/{params.rawfile};"
-        "sudo chmod -R ou+w {config[path_to_mzml]}"
+        #"docker run --rm -v ./{config[path_to_samples]}:/indata "
+        #"-v ./{config[path_to_mzml]}:/outdata chambm/pwiz-skyline-i-agree-to-the-vendor-licenses wine msconvert "
+        #"-o /outdata -v --filter=\"peakPicking true 2-\" /indata/{params.rawfile};"
+        #"sudo chmod -R ou+w {config[path_to_mzml]}"
+        #"""
+        #set -e
+        #docker run --rm -v ./{config[path_to_samples]}:/indata \
+        #-v ./{config[path_to_mzml]}:/outdata chambm/pwiz-skyline-i-agree-to-the-vendor-licenses wine msconvert \
+        #-o /outdata -v --filter="peakPicking true 1-" --filter="demultiplex" /indata/{params.rawfile} || \
+        #docker run --rm -v ./{config[path_to_samples]}:/indata \
+        #-v ./{config[path_to_mzml]}:/outdata chambm/pwiz-skyline-i-agree-to-the-vendor-licenses wine msconvert \
+        #-o /outdata -v --filter="peakPicking true 2-" /indata/{params.rawfile}
+        #sudo chmod -R ou+w {config[path_to_mzml]}
+        #"""
+        """
+        set -e
+        if docker run --rm -v ./{config[path_to_samples]}:/indata \
+            -v ./{config[path_to_mzml]}:/outdata chambm/pwiz-skyline-i-agree-to-the-vendor-licenses wine msconvert \
+            -o /outdata -v --filter="peakPicking true 1-" --filter="demultiplex" /indata/{params.rawfile}; then
+            echo "Success with demultiplex filter for {wildcards.sample}"
+        else
+            echo "Failed with demultiplex, trying peakPicking true 1- for {wildcards.sample}"
+            docker run --rm -v ./{config[path_to_samples]}:/indata \
+            -v ./{config[path_to_mzml]}:/outdata chambm/pwiz-skyline-i-agree-to-the-vendor-licenses wine msconvert \
+            -o /outdata -v --filter="peakPicking true 1-" /indata/{params.rawfile} && \
+            echo "Success with peakPicking true 1- for {wildcards.sample}" 
+        fi
+        sudo chmod -R ou+w {config[path_to_mzml]}
+        """
 
 # mzML file parsing
 rule parse_mzML:
     input:
-        #mzML = config["path_to_mzml"] + "{mzML(sample)}"
         mzML = config["path_to_mzml"] + "{sample}.mzML"
     output:
         csv = config["path_to_csv_output"] + "{sample}_features.csv"
@@ -65,7 +89,7 @@ rule feat_extraction:
           --outDir={config[dinosaur_output_path]} \
           {input}
         """
-# Quality control summaries for both DIA and DDA
+# Quality control summaries for both DIA and DDA (mzmlsummary) and (featuresummary)
 rule qc_mzML_summary:
     input:
         config["path_to_mzml"]+"{sample}.mzML"
@@ -102,10 +126,12 @@ rule peptide_identification:
     params:
         sample = "{sample}",
     output:
-        config["peptide_id_output"]+"{sample}.mzid"
+       mzid = config["peptide_id_output"]+"{sample}.mzid"
     shell:
+    #if [[ "$(python3 DIA-or-DDA.py {input.mzml})" == "DIA file." ]]; then
         """
-        if [[ "$(python3 DIA-or-DDA.py {input.featurescsv})" == "DIA file." ]]; then
+        set -e
+        if python3 DIA-or-DDA.py {input.featurescsv}; then       
             echo dia;
             touch {output};
         else
@@ -114,7 +140,7 @@ rule peptide_identification:
         {config[msgfplus_extra]} \
          -mod {config[msgfplus_mod_path]} \
          -d {input.db} \
-         -o {output} \
+         -o {output.mzid} \
          -s {input.mzml}
         fi
        """
@@ -125,8 +151,10 @@ rule qc_peptideid_mzid_summary:
     output:
         config["qc_summary_folder_path"]+"{sample}.mzidsummary.txt"
     shell:
+    #if [[ "$(python3 DIA-or-DDA.py {input.featurescsv})" == "DIA file." ]]; then
         """
-        if [[ "$(python3 DIA-or-DDA.py {input.featurescsv})" == "DIA file." ]]; then
+        set -e
+         if python3 DIA-or-DDA.py {input.featurescsv}; then
             echo dia;
             touch {output};
         else
@@ -145,8 +173,10 @@ rule qc_report:
     input:
         mzidsummary = config["qc_summary_folder_path"]+"{s}.mzidsummary.txt"
     shell:
+    #if [[ "$(python3 DIA-or-DDA.py {input.featurescsv})" == "DIA file." ]]; then
         """
-        if [[ "$(python3 DIA-or-DDA.py {input.featurescsv})" == "DIA file." ]]; then
+        set -e
+        if python3 DIA-or-DDA.py {input.featurescsv}; then
             echo dia;
             touch {output};
         else
@@ -164,18 +194,20 @@ rule Diann:
         mzML = config["path_to_mzml"] + "{sample}.mzML",
         featurescsv = config["path_to_csv_output"] + "{sample}_features.csv"
     output:
-        result = temp(config["path_to_result_output"] + "{sample}_result.tsv"),
-        tsv = temp(config["path_to_tsv_output"] + "{sample}.tsv"),
-        statsfile = temp(config["path_to_result_output"] + "{sample}.stats.tsv")
+        result = config["path_to_result_output"] + "{sample}_result.tsv",
+        tsv = config["path_to_tsv_output"] + "{sample}.tsv",
+        statsfile = config["path_to_result_output"] + "{sample}.stats.tsv"
     shell:
         """
-        if [[ "$(python3 DIA-or-DDA.py {input.featurescsv})" == "DDA file." ]]; then
+                set -e
+        if python3 DIA-or-DDA.py {input.featurescsv}; then
+            diann-1.8.1 --f {input.mzML}  --lib library/50ngHeLas_lib.tsv.speclib --threads 4 --verbose 1 --out {output.tsv} \
+            --qvalue 0.01 --matrices  --out-lib {output.result} --gen-spec-lib --fasta {input.fasta} \
+            --met-excision --cut K*,R* --relaxed-prot-inf --smart-profiling --peak-center --no-ifs-removal 
+
+        else
             echo dda;
             touch {output};
-        else
-        diann-1.8.1 --f {input.mzML}  --lib library/50ngHeLas_lib.tsv.speclib --threads 4 --verbose 1 --out {output.tsv}
-         --qvalue 0.01 --matrices  --out-lib {output.result} --gen-spec-lib --fasta {input.fasta}
-         --met-excision --cut K*,R* --relaxed-prot-inf --smart-profiling --peak-center --no-ifs-removal 
         fi
         """
 
@@ -191,14 +223,16 @@ rule Report:
     output:
         pdf = config["path_to_report"]+"{sample}.pdf"
     shell:
-    """
-        if [[ "$(python3 DIA-or-DDA.py {input.featurescsv})" == "DIA file." ]]; then
+    #if [[ "$(python3 DIA-or-DDA.py {input.featurescsv})" == "DIA file." ]]; then
+        """
+        set -e
+        if python3 DIA-or-DDA.py {input.mzmlcsv}; then
             python3 DIA-Report.py {input.mzmlcsv} {input.dianntsv} {input.dinosaurtsv} {input.diannresulttsv} {input.diannbigtsv} {output.pdf}
 
         else
             python3 DDA-Report.py {input.mzmlcsv} {input.dinosaurtsv} {input.xml} {output.pdf}
         fi
-    """
+        """
         
 #Comparison Report
 def get_dianntsv_inputs(wildcards):
@@ -210,11 +244,35 @@ def get_mzmlcsv_inputs(wildcards):
 rule ComparisonReport:
     input:
         csv = expand(config["path_to_csv_output"] + "{sample}_features.csv", sample= samples_to_analyse),
-        tsv = expand(config["path_to_result_output"] + "{sample}.stats.tsv", sample= samples_to_analyse)
+        tsv = expand(config["path_to_result_output"] + "{sample}.stats.tsv", sample= samples_to_analyse),
+        mzidsummary = expand(config["qc_summary_folder_path"]+"{sample}.mzidsummary.txt", sample= samples_to_analyse),
     output:
         pdf = config["path_to_report"]+ "Comparison.pdf"
     shell:
-        "python3 CompareFiles.py {input.csv} {input.tsv} {output.pdf}"
+        "python3 Compare.py {input.csv} {input.tsv} {input.mzidsummary} {output.pdf}"
+        #"""
+        #set -e
+        #if python3 DIA-or-DDA.py {input.csv}; then
+        #    python3 CompareFiles.py {input.csv} {input.tsv} {output.pdf}
+        #else
+        #    python3 ComparesFiles-DDA.py {input.csv} {input.mzidsummary} {output.pdf}
+        #fi
+        #"""
 
-
+rule cleanup_empty_outputs:
+    input:
+        expand(config["peptide_id_output"]+"{sample}.mzid", sample= samples_to_analyse),
+        expand(config["qc_summary_folder_path"]+"{sample}.mzidsummary.txt", sample= samples_to_analyse),
+        expand(config["path_to_result_output"] + "{sample}_result.tsv", sample= samples_to_analyse),
+        expand(config["path_to_tsv_output"] + "{sample}.tsv", sample= samples_to_analyse),
+        expand(config["path_to_result_output"] + "{sample}.stats.tsv", sample= samples_to_analyse),
+        pdf1 = config["path_to_report"]+ "Comparison.pdf",
+        pdf = expand(config["path_to_report"]+"{sample}.pdf", sample= samples_to_analyse),
+    output:
+        clean = config["path_to_report"]+ ".cleanup_complete"
+    shell:
+        """
+        python3 cleanup_empty_files.py {config[path_to_tsv_output]} {config[path_to_result_output]} {config[peptide_id_output]} {config[qc_summary_folder_path]}
+        touch {output.clean}
+        """
 
