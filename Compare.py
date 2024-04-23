@@ -1,5 +1,5 @@
 #python3 Compare.py 20240220/221020/MzML/*_features.csv 20240220/221020/DiaNN/*.stats.tsv 20240220/221020/*.mzidsummary.txt AnalysisReport.pdf
-
+import pandas as pd
 import os
 import sys
 import csv
@@ -18,19 +18,40 @@ Report = sys.argv[-1]
 
 scannumbers = {}
 precursors_identified_counts = {}
-ng_regex = re.compile(r"(\d[\d_]*\d*\.?\d*)ng")
+#ng_regex = re.compile(r"(\d[\d_]*\d*\.?\d*)ng")
+ng_regex = re.compile(r"(\d+[\d_]*\.\d+|\d+[\d_]*)ng(?:_[^._]+)?")
 
 # File grouping with added flexibility for both file types
 group1_files = [f for f in sys.argv[1:] if '_features.csv' in f]
 group2_files = [f for f in sys.argv[1:] if '.stats.tsv' in f or '.mzidsummary.txt' in f]
 
+#################### Find the type of inputfile 
+def analyze_isolation_window_target(file):
+    # Load the CSV file
+    df = pd.read_csv(file)
+    
+    # Select the "Isolation Window Target" column, replace 'N/A' with np.nan, and convert to float
+    column = df['Isolation Window Target'].replace('N/A', np.nan).astype(float)
+     
+    # Calculate the number of unique numeric values
+    unique_numeric_values = column.dropna().unique()
+    
+    # It is DIA if the pattern repeated at least 50 times
+    if len(unique_numeric_values) < len(column.dropna()) / 50:
+        return "DIA"
+    else:
+        return "DDA"
+
+
+unique_filetypes = set([analyze_isolation_window_target(inputfile) for inputfile in group1_files])
+
 ######################## Process Group 1 files (CSV)
 for inputfile in group1_files:
+    filetype = analyze_isolation_window_target(inputfile)
     scan_number_MSMS = 0
     scan_number_MS1 = 0
 
     with open(inputfile) as file:
-        print(inputfile)
         csv_reader = csv.DictReader(file)  # Use DictReader to access columns by header
         for row in csv_reader:
             # Check and count non-'N/A' values for 'Precursor Ion m/z'
@@ -40,14 +61,23 @@ for inputfile in group1_files:
             if row.get('MS1 Base Peak m/z') and row['MS1 Base Peak m/z'] != 'N/A':
                 scan_number_MS1 += 1
         ng_match = ng_regex.search(inputfile)
-        ng = ng_match.group(0)
-
-        if '_' in ng:
-            formatted_ng = ng.replace('_', ',')
-        elif ng.startswith("0"):
-            formatted_ng = '0,' + ng[1:]
+        if ng_match is None:
+            formatted_ng = os.path.basename(inputfile).replace("_features.csv", "")
         else:
-            formatted_ng = ng
+            ng = ng_match.group(0)
+
+            if '_' in ng:
+                formatted_ng = ng.replace('_', ',')
+            elif ng.startswith("0"):
+                formatted_ng = '0,' + ng[1:]
+            else:
+                formatted_ng = ng
+
+        # Remove 'DIA' or 'DDA' from formatted_ng (if not part of the intentional filetype addition), case insensitive
+        formatted_ng = re.sub(r'(?<!\s)(dia|dda)(?!\s)', '', formatted_ng, flags=re.IGNORECASE)
+
+        if len(unique_filetypes) > 1:
+                formatted_ng += " " + filetype
 
         # Use formatted_ng for dictionary operations
         if formatted_ng not in scannumbers:
@@ -68,7 +98,7 @@ formatted_ng_labels = list(scannumbers.keys())
 # Define a sorting key function
 def ng_value_sort_key(ng_value):
     # Replace commas with dots and remove 'ng' suffix, then convert to float
-    numeric_part = ng_value.replace(',', '.').replace('ng', '')
+    numeric_part = ng_value.replace(',', '.').replace('ng', '').split(' ')[0]
     try:
         return float(numeric_part)
     except ValueError:
@@ -103,7 +133,7 @@ fig.savefig(plot_filename, bbox_inches='tight')
 
 ######################### Process Group 2 files (.stats.tsv or .mzidsummary.txt)
 for inputfile in group2_files:
-    precursors_identified = 0  # Default to 0
+    precursors_identified = -1  # Default to -1
     formatted_ng = ''
 
     # Check file type and process accordingly
@@ -115,15 +145,19 @@ for inputfile in group2_files:
                     precursors_identified += int(row['Precursors.Identified'])
                 except ValueError:
                     pass  # Handle non-integer values gracefully
+        filetype = 'DIA'
     elif inputfile.endswith('.mzidsummary.txt'):
         with open(inputfile, 'r') as file:
             lines = file.readlines()
             if len(lines) >= 2:
                 precursors_identified = int(lines[1].split()[0])
+        filetype = 'DDA'
     
     # Common code for extracting and formatting ng value from filename
     ng_match = ng_regex.search(inputfile)
-    if ng_match:
+    if ng_match is None:
+        formatted_ng = os.path.basename(inputfile).replace('.stats.tsv', "").replace('.mzidsummary.txt', "")
+    else:
         ng = ng_match.group(0)
         if '_' in ng:
             formatted_ng = ng.replace('_', ',')
@@ -131,11 +165,17 @@ for inputfile in group2_files:
             formatted_ng = '0,' + ng[1:]
         else:
             formatted_ng = ng
+        # Remove 'DIA' or 'DDA' from formatted_ng (if not part of the intentional filetype addition), case insensitive
+    formatted_ng = re.sub(r'(?<!\s)(dia|dda)(?!\s)', '', formatted_ng, flags=re.IGNORECASE)
+    
+    if len(unique_filetypes) > 1:
+        formatted_ng += " " + filetype
 
     # Update the dictionary for precursors identified counts
-    if formatted_ng not in precursors_identified_counts:
-        precursors_identified_counts[formatted_ng] = []
-    precursors_identified_counts[formatted_ng].append(precursors_identified)
+    if precursors_identified != -1:
+        if formatted_ng not in precursors_identified_counts:
+            precursors_identified_counts[formatted_ng] = []
+        precursors_identified_counts[formatted_ng].append(precursors_identified)
 
 # Common code for plotting and PDF generation
 # Print each key and value in the desired format for the second group
@@ -153,7 +193,7 @@ avg_precursors_counts = [np.mean(counts) for counts in precursors_identified_cou
 # Define a sorting key function
 def ng_value_sort_key(ng_value):
     # Replace commas with dots and remove 'ng' suffix, then convert to float
-    numeric_part = ng_value.replace(',', '.').replace('ng', '')
+    numeric_part = ng_value.replace(',', '.').replace('ng', '').split(' ')[0]
     try:
         return float(numeric_part)
     except ValueError:
