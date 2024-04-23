@@ -23,7 +23,6 @@ def parse_mzml(file_path):
             if 'precursorList' in spectrum and spectrum['precursorList']['count'] > 0:
                 precursor = spectrum['precursorList']['precursor'][0]
                 selected_ion = precursor['selectedIonList']['selectedIon'][0]
-
                 precursor_mz = selected_ion['selected ion m/z']
                 retention_time = spectrum['scanList']['scan'][0]['scan start time']
                 injection_time = spectrum['scanList']['scan'][0].get('ion injection time', 'N/A')
@@ -37,8 +36,29 @@ def parse_mzml(file_path):
                     'Injection Time': injection_time,
                     'Isolation Window Target': isolation_window_target,
                     'Isolation window upper offset':isolation_window_upper,
-                    'Isolation window lower offset': isolation_window_lower
+                    'Isolation window lower offset': isolation_window_lower,
+                    'MS1 Base Peak m/z': 'N/A',
+                    'Base Peak Intensity': 'N/A',
+                    'Total Ion Current': 'N/A'
                 })
+            if spectrum['ms level'] == 1:
+                base_peak_mz = spectrum.get('base peak m/z', 'N/A')
+                base_peak_intensity = spectrum.get('base peak intensity', 'N/A')
+                total_ion_current = spectrum.get('total ion current', 'N/A')
+                retention_time = spectrum['scanList']['scan'][0]['scan start time']
+#create a dictionary and add it to result
+                results.append({
+                    'Precursor Ion m/z': 'N/A',  # Not applicable for MS1, set as N/A
+                    'Retention Time': retention_time,
+                    'Injection Time': 'N/A',  # Optionally, add if applicable
+                    'Isolation Window Target': 'N/A',  # Not applicable for MS1, set as N/A
+                    'Isolation window upper offset': 'N/A',  # Not applicable for MS1, set as N/A
+                    'Isolation window lower offset': 'N/A',  # Not applicable for MS1, set as N/A
+                    'MS1 Base Peak m/z': base_peak_mz,
+                    'Base Peak Intensity': base_peak_intensity,
+                    'Total Ion Current': total_ion_current
+                })
+
 
     return results
 
