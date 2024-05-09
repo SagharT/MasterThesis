@@ -119,9 +119,9 @@ bars1 = ax.bar(x - width/2, sorted_ms1_counts, width, label='MS1', color='yellow
 bars2 = ax.bar(x + width/2, sorted_msms_counts, width, label='MS2', color='blue')
 
 # Update text for labels, title, and custom x-axis tick labels to use sorted NG values
-ax.set_xlabel('NG Value')
+ax.set_xlabel('Samples')
 ax.set_ylabel('Average Count')
-ax.set_title('Average MS1 and MSMS Spectra by Concentration')
+ax.set_title('Average MS1 and MSMS Spectra for each sample')
 ax.set_xticks(x)
 ax.set_xticklabels(sorted_ng_labels, rotation=45, ha='right')  # Use sorted labels
 ax.legend()
@@ -177,7 +177,6 @@ for inputfile in group2_files:
             precursors_identified_counts[formatted_ng] = []
         precursors_identified_counts[formatted_ng].append(precursors_identified)
 
-# Common code for plotting and PDF generation
 # Print each key and value in the desired format for the second group
 for key, precursors_counts in precursors_identified_counts.items():
     avg_precursors_identified = np.average(precursors_counts)
@@ -197,7 +196,7 @@ def ng_value_sort_key(ng_value):
     try:
         return float(numeric_part)
     except ValueError:
-        # In case of a conversion error, return zero or handle it as appropriate
+        # Return zero or handle it as appropriate
         return 0
     
 # Sort NG values and ensure consistent order for plotting
@@ -212,9 +211,9 @@ fig2, ax = plt.subplots()
 bars1 = ax.bar(x - width/2, sorted_avg_precursors_counts, width, label='precursors counts', color='green')
 
 # Add some text for labels, title, and custom x-axis tick labels, etc.
-ax.set_xlabel('NG Value')
-ax.set_ylabel('Precursors Count')
-ax.set_title('Precursors Counts by Concentration')
+ax.set_xlabel('Samples')
+ax.set_ylabel('Identified Precursors')
+ax.set_title('Identified Precursors comparison between samples')
 ax.set_xticks(x)
 ax.set_xticklabels(sorted_ng_keys, rotation=45, ha='right')
 ax.legend()
