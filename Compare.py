@@ -1,4 +1,4 @@
-#python3 Compare.py 20240220/221020/MzML/*_features.csv 20240220/221020/DiaNN/*.stats.tsv 20240220/221020/*.mzidsummary.txt AnalysisReport.pdf
+#python3 Compare.py /MzML/*_features.csv /DiaNN/*.stats.tsv /*.mzidsummary.txt AnalysisReport.pdf
 import pandas as pd
 import os
 import sys
@@ -6,7 +6,7 @@ import csv
 import re
 import numpy as np
 import matplotlib.pyplot as plt
-from reportlab.lib.pagesizes import letter
+from reportlab.lib.pagesizes import A4, landscape
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
 
@@ -18,14 +18,13 @@ Report = sys.argv[-1]
 
 scannumbers = {}
 precursors_identified_counts = {}
-#ng_regex = re.compile(r"(\d[\d_]*\d*\.?\d*)ng")
-ng_regex = re.compile(r"(\d+[\d_]*\.\d+|\d+[\d_]*)ng(?:_[^._]+)?")
+ng_regex = re.compile(r"\/([^\/]*?)(\d+_)?([\d]+ng)(.*?)(_\d)?\.")
 
 # File grouping with added flexibility for both file types
-group1_files = [f for f in sys.argv[1:] if '_features.csv' in f]
+group1_files = [f for f in sys.argv[1:] if '.features.csv' in f]
 group2_files = [f for f in sys.argv[1:] if '.stats.tsv' in f or '.mzidsummary.txt' in f]
 
-#################### Find the type of inputfile 
+#################### Find the type of inputfile DDA or DIA
 def analyze_isolation_window_target(file):
     # Load the CSV file
     df = pd.read_csv(file)
@@ -42,6 +41,33 @@ def analyze_isolation_window_target(file):
     else:
         return "DDA"
 
+def create_keyname(file, no_match_name, filetype):
+    ng_match = ng_regex.search(file)
+    if ng_match is None:
+        print("No match", file)
+        keyname = no_match_name
+    else:
+        print(ng_match.group(1), ng_match.group(2), ng_match.group(3), ng_match.group(4))
+        ng_part1 = ng_match.group(2)
+        ng_part2 = ng_match.group(3)
+
+        if ng_part1 is not None and 1 < len(ng_part1) <= 4:
+            formatted_ng = ng_part1.replace('_', ',') + ng_part2
+        elif ng_part2.startswith("0"):
+            formatted_ng = '0,' + ng_part2[1:]
+        elif ng_part1 is not None:
+            formatted_ng = ng_part1 + "_" + ng_part2
+        else:
+            formatted_ng = ng_part2
+
+        keyname = ng_match.group(1) + formatted_ng + ng_match.group(4)
+
+    # Remove 'DIA' or 'DDA' from keyname (if not part of the intentional filetype addition)
+    keyname = re.sub(r'(dia|dda)', '', keyname, flags=re.IGNORECASE)
+
+    if len(unique_filetypes) > 1:
+        keyname += " " + filetype
+    return keyname
 
 unique_filetypes = set([analyze_isolation_window_target(inputfile) for inputfile in group1_files])
 
@@ -60,30 +86,14 @@ for inputfile in group1_files:
             # Check and count non-'N/A' values for 'MS1 Base Peak m/z'
             if row.get('MS1 Base Peak m/z') and row['MS1 Base Peak m/z'] != 'N/A':
                 scan_number_MS1 += 1
-        ng_match = ng_regex.search(inputfile)
-        if ng_match is None:
-            formatted_ng = os.path.basename(inputfile).replace("_features.csv", "")
-        else:
-            ng = ng_match.group(0)
 
-            if '_' in ng:
-                formatted_ng = ng.replace('_', ',')
-            elif ng.startswith("0"):
-                formatted_ng = '0,' + ng[1:]
-            else:
-                formatted_ng = ng
+        keyname = create_keyname(inputfile, os.path.basename(inputfile).replace(".features.csv", ""), filetype)
 
-        # Remove 'DIA' or 'DDA' from formatted_ng (if not part of the intentional filetype addition), case insensitive
-        formatted_ng = re.sub(r'(?<!\s)(dia|dda)(?!\s)', '', formatted_ng, flags=re.IGNORECASE)
-
-        if len(unique_filetypes) > 1:
-                formatted_ng += " " + filetype
-
-        # Use formatted_ng for dictionary operations
-        if formatted_ng not in scannumbers:
-            scannumbers[formatted_ng] = ([], [])
-        scannumbers[formatted_ng][0].append(scan_number_MSMS)
-        scannumbers[formatted_ng][1].append(scan_number_MS1)
+        # Use keyname for dictionary operations
+        if keyname not in scannumbers:
+            scannumbers[keyname] = ([], [])
+        scannumbers[keyname][0].append(scan_number_MSMS)
+        scannumbers[keyname][1].append(scan_number_MS1)
 
 # Print each key and value in the desired format
 for key, (msms, ms1) in scannumbers.items():
@@ -96,21 +106,17 @@ formatted_ng_labels = list(scannumbers.keys())
 
 
 # Define a sorting key function
-def ng_value_sort_key(ng_value):
-    # Replace commas with dots and remove 'ng' suffix, then convert to float
-    numeric_part = ng_value.replace(',', '.').replace('ng', '').split(' ')[0]
-    try:
-        return float(numeric_part)
-    except ValueError:
-        # In case of a conversion error, return zero or handle it as appropriate
-        return 0
+def ng_value_sort_key(ng_item):
+    ng_key, ng_value = ng_item
+    return np.mean(ng_value[0])
     
 # Assuming ng_value_sort_key function is already defined
 # Sort NG values for consistent order in plotting
 width = 0.35
-sorted_ng_labels = sorted(scannumbers.keys(), key=ng_value_sort_key)
-sorted_msms_counts = [np.mean(scannumbers[ng][0]) for ng in sorted_ng_labels]
-sorted_ms1_counts = [np.mean(scannumbers[ng][1]) for ng in sorted_ng_labels]
+sorted_ng_items = sorted(scannumbers.items(), key=ng_value_sort_key)
+sorted_ng_labels = [item[0] for item in sorted_ng_items]
+sorted_msms_counts = [np.mean(item[1][0]) for item in sorted_ng_items]
+sorted_ms1_counts = [np.mean(item[1][1]) for item in sorted_ng_items]
 
 x = np.arange(len(sorted_ng_labels))  # the label locations, now sorted
 
@@ -124,7 +130,7 @@ ax.set_ylabel('Average Count')
 ax.set_title('Average MS1 and MSMS Spectra for each sample')
 ax.set_xticks(x)
 ax.set_xticklabels(sorted_ng_labels, rotation=45, ha='right')  # Use sorted labels
-ax.legend()
+ax.legend(loc='upper left', bbox_to_anchor=(1, 1))
 
 
 plt.tight_layout()
@@ -153,29 +159,13 @@ for inputfile in group2_files:
                 precursors_identified = int(lines[1].split()[0])
         filetype = 'DDA'
     
-    # Common code for extracting and formatting ng value from filename
-    ng_match = ng_regex.search(inputfile)
-    if ng_match is None:
-        formatted_ng = os.path.basename(inputfile).replace('.stats.tsv', "").replace('.mzidsummary.txt', "")
-    else:
-        ng = ng_match.group(0)
-        if '_' in ng:
-            formatted_ng = ng.replace('_', ',')
-        elif ng.startswith("0"):
-            formatted_ng = '0,' + ng[1:]
-        else:
-            formatted_ng = ng
-        # Remove 'DIA' or 'DDA' from formatted_ng (if not part of the intentional filetype addition), case insensitive
-    formatted_ng = re.sub(r'(?<!\s)(dia|dda)(?!\s)', '', formatted_ng, flags=re.IGNORECASE)
-    
-    if len(unique_filetypes) > 1:
-        formatted_ng += " " + filetype
+    keyname = create_keyname(inputfile, os.path.basename(inputfile).replace('.stats.tsv', "").replace('.mzidsummary.txt', ""), filetype)
 
     # Update the dictionary for precursors identified counts
     if precursors_identified != -1:
-        if formatted_ng not in precursors_identified_counts:
-            precursors_identified_counts[formatted_ng] = []
-        precursors_identified_counts[formatted_ng].append(precursors_identified)
+        if keyname not in precursors_identified_counts:
+            precursors_identified_counts[keyname] = []
+        precursors_identified_counts[keyname].append(precursors_identified)
 
 # Print each key and value in the desired format for the second group
 for key, precursors_counts in precursors_identified_counts.items():
@@ -189,26 +179,23 @@ all_formatted_ng_labels = sorted(set(formatted_ng_labels + formatted_ng_labels_g
 
 avg_precursors_counts = [np.mean(counts) for counts in precursors_identified_counts.values()]
 
+
 # Define a sorting key function
-def ng_value_sort_key(ng_value):
-    # Replace commas with dots and remove 'ng' suffix, then convert to float
-    numeric_part = ng_value.replace(',', '.').replace('ng', '').split(' ')[0]
-    try:
-        return float(numeric_part)
-    except ValueError:
-        # Return zero or handle it as appropriate
-        return 0
+def ng_value_sort_key(ng_item):
+    ng_key, ng_value = ng_item
+    return np.mean(ng_value[0])
     
 # Sort NG values and ensure consistent order for plotting
-sorted_ng_keys = sorted(precursors_identified_counts.keys(), key=ng_value_sort_key)
-sorted_avg_precursors_counts = [np.mean(precursors_identified_counts[ng]) for ng in sorted_ng_keys]
+sorted_ng_items = sorted(precursors_identified_counts.items(), key=ng_value_sort_key)
+sorted_ng_keys = [item[0] for item in sorted_ng_items]
+sorted_avg_precursors_counts = [np.mean(item[1]) for item in sorted_ng_items]
 
 
 x = np.arange(len(sorted_ng_keys))  # the label locations
 width = 0.35  # the width of the bars
 
 fig2, ax = plt.subplots()
-bars1 = ax.bar(x - width/2, sorted_avg_precursors_counts, width, label='precursors counts', color='green')
+bars1 = ax.bar(x - width/2, sorted_avg_precursors_counts, width, label='precursor\ncounts', color='green')
 
 # Add some text for labels, title, and custom x-axis tick labels, etc.
 ax.set_xlabel('Samples')
@@ -216,7 +203,7 @@ ax.set_ylabel('Identified Precursors')
 ax.set_title('Identified Precursors comparison between samples')
 ax.set_xticks(x)
 ax.set_xticklabels(sorted_ng_keys, rotation=45, ha='right')
-ax.legend()
+ax.legend(loc='upper left', bbox_to_anchor=(1, 1))
 
 
 plt.tight_layout()
@@ -226,16 +213,16 @@ fig2.savefig(plot2_filename, bbox_inches='tight')
 
 
 #Create the Report
-c = canvas.Canvas(Report, pagesize=letter)
-width, height = letter 
+c = canvas.Canvas(Report, pagesize=landscape(A4))
+width, height = landscape(A4) 
 # Load the plot image
 plot_image = ImageReader(plot_filename)
-plot2_filename = ImageReader(plot2_filename)
+plot2_image = ImageReader(plot2_filename)
 
 # Draw the images onto the PDF
-c.drawImage(plot_image, x=72, y=height-8*72, width=6*72, preserveAspectRatio=True, anchor='c')
+c.drawImage(plot_image, x=0, y=0, width=width, preserveAspectRatio=True, anchor='c')
 c.showPage()  # Finish the first page
-c.drawImage(plot2_filename, x=72, y=height-8*72, width=6*72, preserveAspectRatio=True, anchor='c')
+c.drawImage(plot2_image, x=0, y=0, width=width, preserveAspectRatio=True, anchor='c')
 
 # Save the PDF
 c.save()
