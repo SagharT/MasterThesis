@@ -1,5 +1,5 @@
-# python3 DDA-Report.py /home/ubuntu/snake-test/20240226-DDAtest/MzML/231010_50ngHela31min-1_features.csv /home/ubuntu/snake-test/20240226-DDAtest/231010_50ngHela31min-1.features.tsv /home/ubuntu/snake-test/20240226-DDAtest/231010_50ngHela31min-1.mzid .pdf
-# This script is Features.py + MZid-parser.py
+# python3 DDA-Report.py /MzML/_features.csv .features.tsv .mzid .pdf table
+
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
@@ -18,6 +18,7 @@ FeaturesFile = sys.argv[1]
 AdditionalDataFile = sys.argv[2]
 XmlFile = sys.argv[3]
 Report = sys.argv[4]
+TableFile = sys.argv[5]
 
 # Initialize PDF
 c = canvas.Canvas(Report, pagesize=letter)
@@ -54,6 +55,7 @@ injection_times = []
 unique_targets = set()
 scan_number_MSMS = 0
 scan_number_MS1 = 0
+target_details = {}
 
 with open(FeaturesFile) as file:
     csv_reader = csv.DictReader(file)  # Use DictReader to access columns by header
@@ -80,6 +82,12 @@ with open(FeaturesFile) as file:
             window_size = upper_offset + lower_offset
             window_sizes.append(window_size)
             unique_targets.add(target)
+
+            target_details[target] = {
+                'upper_offset': upper_offset,
+                'lower_offset': lower_offset,
+                'window_size': window_size
+            }
 
 # Calculate average and median
 average_injection_time = np.mean(injection_times)
@@ -129,6 +137,8 @@ precursors_identified = len(retention_times)
 filtered_retention_times = [retention_times[i] for i in range(len(charges)) if charges[i] >= 2]
 filtered_mz_values = [mz_values[i] for i in range(len(charges)) if charges[i] >= 2]
 ################### Generate Plots and Save to BytesIO Buffers #################
+# Set the default font size for all plot elements
+plt.rcParams.update({'font.size': 11})
 bufs = []
 for i in range(4):
     buf = io.BytesIO()
@@ -137,24 +147,24 @@ for i in range(4):
     if i == 0:  # Plot 1: RetentionTime vs M/Z (All Features)
         plt.scatter(RetentionTime_values, MZ_values, s=0.1, color='blue')
         plt.xlabel('RetentionTime')
-        plt.ylabel('M/Z')
-        plt.title('RetentionTime and M/Z (All Features)')
-    elif i == 1:  # Plot 2: RetentionTime vs M/Z (Charge >= 2)
+        plt.ylabel('m/z')
+        plt.title('RetentionTime and m/z (All Features)')
+    elif i == 1:  # Plot 2: RetentionTime vs m/z (Charge >= 2)
         plt.scatter(RetentionTime_values_high_charge, MZ_values_high_charge, s=0.1, color='blue')
         plt.xlabel('Retention Time')
-        plt.ylabel('M/Z')
-        plt.title('Retention Time and M/Z (Charge >= 2)')
+        plt.ylabel('m/z')
+        plt.title('Retention Time and m/z (Charge >= 2)')
     elif i == 2:  # Plot 3: All Charges from merged data
         plt.scatter(retention_times, mz_values, alpha=0.5, s=0.5)
-        plt.title('All Charges (DiaNN)')
+        plt.title('All Charges (Identified features, MSGFPlus)')
         plt.xlabel('Retention Time (RT)')
-        plt.ylabel('Precursor M/Z')
+        plt.ylabel('Precursor m/z')
         plt.grid(True)
     elif i == 3:  # Plot 4: Charge ≥ 2 from filtered data
         plt.scatter(filtered_retention_times, filtered_mz_values, alpha=0.5, s=0.5)
-        plt.title('Charge ≥ 2 (DiaNN) ')
+        plt.title('Charge ≥ 2 (Identified features, MSGFPlus)')
         plt.xlabel('Retention Time (RT)')
-        plt.ylabel('Precursor M/Z')
+        plt.ylabel('Precursor m/z')
         plt.grid(True)
 
     plt.savefig(buf, format='png')
@@ -163,7 +173,9 @@ for i in range(4):
     plt.close()
 
 ################### Add Text Content to PDF ###################
+file_status = "DDA sample."
 report_content = f"""
+{file_status}
 Number of distinct isolation windows used: {len(unique_targets)}
 Window Size: {average_upper_bound - average_lower_bound:.2f}
 
@@ -175,8 +187,8 @@ report_content += f"""
 Precursors Identified: {precursors_identified}
 """
 report_content += f"""
-Scan number MS1: {scan_number_MS1}
-Scan number MS/MS: {scan_number_MSMS}
+Number of MS1 scans: {scan_number_MS1}
+Number of MS/MS scans: {scan_number_MSMS}
 """
 # Add report content to PDF
 # Define starting Y position for text
@@ -216,3 +228,21 @@ for image, x, y, image_width, image_height in image_positions:
 
 # Save the PDF
 c.save()
+
+
+# Prepare the header and data rows for the table
+data = [['Target', 'Upper Window', 'Lower Window', 'Window Size']]
+for target, details in target_details.items():
+    data.append([
+        target,
+        details['upper_offset'],
+        details['lower_offset'],
+        details['window_size']
+    ])
+
+# Write data to CSV file
+with open(TableFile, 'w', newline='') as csvfile:
+    csv_writer = csv.writer(csvfile)
+    
+    # Write rows
+    csv_writer.writerows(data)
