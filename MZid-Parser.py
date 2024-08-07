@@ -2,12 +2,10 @@ import xml.etree.ElementTree as ET
 import sys
 import matplotlib.pyplot as plt
 
-# Use the first command-line argument as the file path
 file_path = sys.argv[1]
 
 # Parse the XML file
-#The parse function reads the XML document from the file and creates a tree structure 
-#that represents the XML document.
+#The parse function reads the XML document from the file and creates a tree structure that represents the XML document.
 tree = ET.parse(file_path)
 root = tree.getroot()
 

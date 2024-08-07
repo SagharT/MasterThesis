@@ -1,7 +1,7 @@
 '''
 This snake fike automatically picks up new .raw files from the specified directory for processing.
-Converts .raw files to .mzML format using the msconvert tool.
-Parses the .mzML files to extract specific features and saves this data into CSV files.
+It includes Parsing, Feature extraction, Quality control, peptide identification and creating reports
+Check the config file and edit the nessesary paths
 '''
 configfile: "config.yaml"
 
@@ -12,17 +12,15 @@ samples_to_analyse = [sample.replace('.raw', '') for sample in os.listdir(config
 
 rule all:
     input:
-        expand(config["path_to_csv_output"] + "{sample}_features.csv", sample=samples_to_analyse),
+        expand(config["path_to_csv_output"] + "{sample}.features.csv", sample=samples_to_analyse),
         expand(config["qc_summary_folder_path"]+"{sample}.mzmlsummary.txt", sample=samples_to_analyse),
-        #expand(config["qc_summary_folder_path"]+"{sample}.mzidsummary.txt", sample=samples_to_analyse), #peptide identification (MSGFPlus)
         expand(config["qc_summary_folder_path"]+"{sample}.featuresummary.txt", sample=samples_to_analyse), #feature detection (Dinosaur)
-        #expand(config["path_to_tsv_output"] + "{sample}_result.tsv", sample=samples_to_analyse),
-        #expand(config["path_to_tsv_output"] + "{sample}.tsv", sample=samples_to_analyse),
         expand(config["path_to_report"]+"{sample}.pdf", sample=samples_to_analyse),
+        expand(config["path_to_report"]+"{sample}.csv", sample=samples_to_analyse),
         config["path_to_report"] + "Comparison.pdf",
         config["path_to_report"]+ ".cleanup_complete"
-        
 
+        
 # Raw file conversion 
 rule convert_raw_file:
     input:
@@ -33,20 +31,6 @@ rule convert_raw_file:
         mzML = config["path_to_mzml"] + "{sample}.mzML"
         
     shell:
-        #"docker run --rm -v ./{config[path_to_samples]}:/indata "
-        #"-v ./{config[path_to_mzml]}:/outdata chambm/pwiz-skyline-i-agree-to-the-vendor-licenses wine msconvert "
-        #"-o /outdata -v --filter=\"peakPicking true 2-\" /indata/{params.rawfile};"
-        #"sudo chmod -R ou+w {config[path_to_mzml]}"
-        #"""
-        #set -e
-        #docker run --rm -v ./{config[path_to_samples]}:/indata \
-        #-v ./{config[path_to_mzml]}:/outdata chambm/pwiz-skyline-i-agree-to-the-vendor-licenses wine msconvert \
-        #-o /outdata -v --filter="peakPicking true 1-" --filter="demultiplex" /indata/{params.rawfile} || \
-        #docker run --rm -v ./{config[path_to_samples]}:/indata \
-        #-v ./{config[path_to_mzml]}:/outdata chambm/pwiz-skyline-i-agree-to-the-vendor-licenses wine msconvert \
-        #-o /outdata -v --filter="peakPicking true 2-" /indata/{params.rawfile}
-        #sudo chmod -R ou+w {config[path_to_mzml]}
-        #"""
         """
         set -e
         if docker run --rm -v ./{config[path_to_samples]}:/indata \
@@ -68,7 +52,7 @@ rule parse_mzML:
     input:
         mzML = config["path_to_mzml"] + "{sample}.mzML"
     output:
-        csv = config["path_to_csv_output"] + "{sample}_features.csv"
+        csv = config["path_to_csv_output"] + "{sample}.features.csv"
     shell:
         "python3 mzML-Parser.py {input.mzML} {output.csv}"
 
@@ -122,13 +106,12 @@ rule peptide_identification:
     input:
         mzml = config["path_to_mzml"]+"{sample}.mzML",
         db = config["fasta"],
-        featurescsv = config["path_to_csv_output"] + "{sample}_features.csv",
+        featurescsv = config["path_to_csv_output"] + "{sample}.features.csv",
     params:
         sample = "{sample}",
     output:
        mzid = config["peptide_id_output"]+"{sample}.mzid"
     shell:
-    #if [[ "$(python3 DIA-or-DDA.py {input.mzml})" == "DIA file." ]]; then
         """
         set -e
         if python3 DIA-or-DDA.py {input.featurescsv}; then       
@@ -147,11 +130,10 @@ rule peptide_identification:
 rule qc_peptideid_mzid_summary:
     input:
         mzid = config["peptide_id_output"]+"{sample}.mzid",
-        featurescsv = config["path_to_csv_output"] + "{sample}_features.csv",
+        featurescsv = config["path_to_csv_output"] + "{sample}.features.csv",
     output:
         config["qc_summary_folder_path"]+"{sample}.mzidsummary.txt"
     shell:
-    #if [[ "$(python3 DIA-or-DDA.py {input.featurescsv})" == "DIA file." ]]; then
         """
         set -e
          if python3 DIA-or-DDA.py {input.featurescsv}; then
@@ -168,12 +150,11 @@ rule qc_peptideid_mzid_summary:
          fi
         """
 
-#Run only if summary files present
+# Run only if summary files present
 rule qc_report:
     input:
         mzidsummary = config["qc_summary_folder_path"]+"{s}.mzidsummary.txt"
     shell:
-    #if [[ "$(python3 DIA-or-DDA.py {input.featurescsv})" == "DIA file." ]]; then
         """
         set -e
         if python3 DIA-or-DDA.py {input.featurescsv}; then
@@ -192,16 +173,18 @@ rule Diann:
     input:
         fasta = config["fasta"],
         mzML = config["path_to_mzml"] + "{sample}.mzML",
-        featurescsv = config["path_to_csv_output"] + "{sample}_features.csv"
+        featurescsv = config["path_to_csv_output"] + "{sample}.features.csv"
     output:
         result = config["path_to_result_output"] + "{sample}_result.tsv",
         tsv = config["path_to_tsv_output"] + "{sample}.tsv",
         statsfile = config["path_to_result_output"] + "{sample}.stats.tsv"
     shell:
+    #library/50ngHeLas_lib.tsv.speclib
+    #library/report-lib.predicted.speclib
         """
                 set -e
         if python3 DIA-or-DDA.py {input.featurescsv}; then
-            diann-1.8.1 --f {input.mzML}  --lib library/50ngHeLas_lib.tsv.speclib --threads 4 --verbose 1 --out {output.tsv} \
+            /usr/bin/time -v diann-1.8.1 --f {input.mzML}  --lib library/report-lib.predicted.speclib --threads 4 --verbose 1 --out {output.tsv} \
             --qvalue 0.01 --matrices  --out-lib {output.result} --gen-spec-lib --fasta {input.fasta} \
             --met-excision --cut K*,R* --relaxed-prot-inf --smart-profiling --peak-center --no-ifs-removal 
 
@@ -214,23 +197,23 @@ rule Diann:
 #Report
 rule Report:
     input:
-        mzmlcsv = config["path_to_csv_output"] + "{sample}_features.csv",
+        mzmlcsv = config["path_to_csv_output"] + "{sample}.features.csv",
         dianntsv = config["path_to_result_output"] + "{sample}.stats.tsv",
         dinosaurtsv = config["dinosaur_output_path"]+"{sample}.features.tsv",
         diannresulttsv = config["path_to_result_output"]+"{sample}_result.tsv",
         diannbigtsv= config["path_to_tsv_output"]+"{sample}.tsv",
         xml=config["peptide_id_output"]+"{sample}.mzid",
     output:
-        pdf = config["path_to_report"]+"{sample}.pdf"
+        pdf = config["path_to_report"]+"{sample}.pdf",
+        table = config["path_to_report"]+"{sample}.csv"
     shell:
-    #if [[ "$(python3 DIA-or-DDA.py {input.featurescsv})" == "DIA file." ]]; then
         """
         set -e
         if python3 DIA-or-DDA.py {input.mzmlcsv}; then
-            python3 DIA-Report.py {input.mzmlcsv} {input.dianntsv} {input.dinosaurtsv} {input.diannresulttsv} {input.diannbigtsv} {output.pdf}
+            python3 DIA-Report.py {input.mzmlcsv} {input.dianntsv} {input.dinosaurtsv} {input.diannresulttsv} {input.diannbigtsv} {output.pdf} {output.table}
 
         else
-            python3 DDA-Report.py {input.mzmlcsv} {input.dinosaurtsv} {input.xml} {output.pdf}
+            python3 DDA-Report.py {input.mzmlcsv} {input.dinosaurtsv} {input.xml} {output.pdf} {output.table} 
         fi
         """
         
@@ -239,25 +222,17 @@ def get_dianntsv_inputs(wildcards):
     return glob.glob(config["path_to_result_output"] + "*.stats.tsv")
 
 def get_mzmlcsv_inputs(wildcards):
-    return glob.glob(config["path_to_csv_output"] + "*_features.csv")
+    return glob.glob(config["path_to_csv_output"] + "*.features.csv")
 
 rule ComparisonReport:
     input:
-        csv = expand(config["path_to_csv_output"] + "{sample}_features.csv", sample= samples_to_analyse),
+        csv = expand(config["path_to_csv_output"] + "{sample}.features.csv", sample= samples_to_analyse),
         tsv = expand(config["path_to_result_output"] + "{sample}.stats.tsv", sample= samples_to_analyse),
         mzidsummary = expand(config["qc_summary_folder_path"]+"{sample}.mzidsummary.txt", sample= samples_to_analyse),
     output:
         pdf = config["path_to_report"]+ "Comparison.pdf"
     shell:
         "python3 Compare.py {input.csv} {input.tsv} {input.mzidsummary} {output.pdf}"
-        #"""
-        #set -e
-        #if python3 DIA-or-DDA.py {input.csv}; then
-        #    python3 CompareFiles.py {input.csv} {input.tsv} {output.pdf}
-        #else
-        #    python3 ComparesFiles-DDA.py {input.csv} {input.mzidsummary} {output.pdf}
-        #fi
-        #"""
 
 rule cleanup_empty_outputs:
     input:
