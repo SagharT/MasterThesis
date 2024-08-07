@@ -1,5 +1,5 @@
-# python3 Report.py _features.csv .stats.tsv .features.tsv  _result.tsv .tsv .pdf
-# This script is Features.py + DiaNN-Parser.py
+# python3 Report.py /MzML/_features.csv .stats.tsv .features.tsv  _result.tsv .tsv .pdf
+
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
@@ -19,6 +19,7 @@ AdditionalDataFile = sys.argv[3]
 result_tsv = sys.argv[4]
 tsv = sys.argv[5]
 Report = sys.argv[6]
+TableFile = sys.argv[7]
 
 # Initialize PDF
 c = canvas.Canvas(Report, pagesize=letter)
@@ -48,13 +49,12 @@ with open(AdditionalDataFile, 'r') as file:
             MZ_values_high_charge.append(mz)
             RetentionTime_values_high_charge.append(rtApex)
 
-lower_bounds = []
-upper_bounds = []
-window_sizes = []
-injection_times = []
-unique_targets = set()
+window_sizes_by_target = {}
 scan_number_MSMS = 0
 scan_number_MS1 = 0
+injection_times = []
+demultiplexing_applied = False
+target_details = {}
 
 with open(FeaturesFile) as file:
     csv_reader = csv.DictReader(file)  # Use DictReader to access columns by header
@@ -68,28 +68,53 @@ with open(FeaturesFile) as file:
 
         if row['Injection Time'] != 'N/A':
             injection_times.append(float(row['Injection Time']))
-        # Calculate window size
-        if row['Isolation Window Target'] != 'N/A' and row['Isolation window upper offset'] != 'N/A' and row['Isolation window lower offset'] != 'N/A':
+
+        if all(key in row for key in ['Isolation Window Target', 'Isolation window upper offset', 'Isolation window lower offset']) and all(row[key] != 'N/A' for key in ['Isolation Window Target', 'Isolation window upper offset', 'Isolation window lower offset']):
             target = float(row['Isolation Window Target'])
             upper_offset = float(row['Isolation window upper offset'])
             lower_offset = float(row['Isolation window lower offset'])
-            
-            lower_bound = target - lower_offset
-            upper_bound = target + upper_offset
-            lower_bounds.append(lower_bound)
-            upper_bounds.append(upper_bound)
-            window_size = upper_offset + lower_offset
-            window_sizes.append(window_size)
-            unique_targets.add(target)
+            window_size = round(upper_offset + lower_offset, 1)
+
+            # Check for demultiplexing signal in the data and adjust window size
+            if row.get('Demultiplexing') == 'Yes':  # This needs to be based on your specific data marking for demultiplexing
+                demultiplexing_applied = True
+                window_size *= 2  # Double the size if demultiplexed
+                # Store details for each target
+            target_details[target] = {
+                'upper_offset': upper_offset,
+                'lower_offset': lower_offset,
+                'window_size': window_size
+            }
+                
+            window_sizes_by_target[target] = window_size  # Store window size for each target
+
+window_size_counts = {}
+for size in window_sizes_by_target.values():
+    if size not in window_size_counts:
+        window_size_counts[size] = 0
+    window_size_counts[size] += 1
+    
+num_isolation_windows = len(window_sizes_by_target)
+if demultiplexing_applied:
+    # Adjust the count of each window size based on the new total number of targets
+    adjustment_factor = (num_isolation_windows - 2) // 2
+    adjusted_window_size_counts = {}
+    for size, count in window_size_counts.items():
+        # Reduce the original count proportionally based on the adjustment factor
+        adjusted_count = max(1, count * adjustment_factor // num_isolation_windows)
+        adjusted_window_size_counts[size] = adjusted_count
+    window_size_counts = adjusted_window_size_counts  # Use the adjusted counts for summary
+    num_isolation_windows = adjustment_factor  # Update the total number of isolation windows
+
+# Generate the summary of window sizes with corrected target counts
+window_size_summary = "; ".join(f"{size} for {count} windows" for size, count in window_size_counts.items())
+
 
 # Calculate average and median
 average_injection_time = np.mean(injection_times)
 median_injection_time = np.median(injection_times)
-average_lower_bound = np.mean(lower_bounds)
-average_upper_bound = np.mean(upper_bounds)
-average_window_size = np.mean(window_sizes)
 
-# Initialize variables for the second file
+
 precursors_identified = 0
 # Read data from the second TSV file
 with open(StatsFile, newline='') as file:
@@ -105,32 +130,34 @@ merged_df = pd.merge(df1, df2, left_on='ModifiedPeptide', right_on='Modified.Seq
 df_filtered = merged_df[merged_df['PrecursorCharge'] >= 2]
 
 ######################## Generate four Plots  ############################
+# Set the default font size for all plot elements
+plt.rcParams.update({'font.size': 12})
 bufs = []
 for i in range(4):
     buf = io.BytesIO()
     plt.figure()
 
-    if i == 0:  # Plot 1: RetentionTime vs M/Z (All Features)
+    if i == 0:  # Plot 1: RetentionTime vs m/z (All Features)
         plt.scatter(RetentionTime_values, MZ_values, s=0.1, color='blue')
         plt.xlabel('RetentionTime')
-        plt.ylabel('M/Z')
-        plt.title('RetentionTime and M/Z (All Features)')
-    elif i == 1:  # Plot 2: RetentionTime vs M/Z (Charge >= 2)
+        plt.ylabel('m/z')
+        plt.title('RetentionTime and m/z (All Features)')
+    elif i == 1:  # Plot 2: RetentionTime vs m/z (Charge >= 2)
         plt.scatter(RetentionTime_values_high_charge, MZ_values_high_charge, s=0.1, color='blue')
         plt.xlabel('Retention Time')
-        plt.ylabel('M/Z')
-        plt.title('Retention Time and M/Z (Charge >= 2)')
+        plt.ylabel('m/z')
+        plt.title('Retention Time and m/z (Charge >= 2)')
     elif i == 2:  # Plot 3: All Charges from merged data
         plt.scatter(merged_df['RT'], merged_df['PrecursorMz'], alpha=0.5, s=0.5)
-        plt.title('All Charges (DiaNN)')
+        plt.title('All Charges (Identified features, Dia-NN)')
         plt.xlabel('Retention Time (RT)')
-        plt.ylabel('Precursor M/Z')
+        plt.ylabel('Precursor m/z')
         plt.grid(True)
     elif i == 3:  # Plot 4: Charge ≥ 2 from filtered data
         plt.scatter(df_filtered['RT'], df_filtered['PrecursorMz'], alpha=0.5, s=0.5)
-        plt.title('Charge ≥ 2 (DiaNN) ')
+        plt.title('Charge ≥ 2 (Identified features, Dia-NN) ')
         plt.xlabel('Retention Time (RT)')
-        plt.ylabel('Precursor M/Z')
+        plt.ylabel('Precursor m/z')
         plt.grid(True)
 
     plt.savefig(buf, format='png')
@@ -139,9 +166,11 @@ for i in range(4):
     plt.close()
 
 ################### Add Text Content to PDF ###################
+demultiplexing_status = "DIA sample using overlapping windows and demultiplexing after" if demultiplexing_applied else "DIA sample"
 report_content = f"""
-Number of distinct isolation windows used: {len(unique_targets)}
-Window Size: {average_upper_bound - average_lower_bound:.2f}
+{demultiplexing_status}.
+Number of distinct isolation windows used: {num_isolation_windows}
+Detailed Window Size: {window_size_summary}
 
 Average Injection Time: {average_injection_time:.2f} ms
 Median Injection Time: {median_injection_time:.2f} ms
@@ -151,8 +180,8 @@ report_content += f"""
 Precursors Identified: {precursors_identified}
 """
 report_content += f"""
-Scan number MS1: {scan_number_MS1}
-Scan number MS/MS: {scan_number_MSMS}
+Number of MS1 scans: {scan_number_MS1}
+Number of MS/MS scans: {scan_number_MSMS}
 """
 # Add report content to PDF
 # Define starting Y position for text
@@ -192,3 +221,21 @@ for image, x, y, image_width, image_height in image_positions:
 
 # Save the PDF
 c.save()
+
+
+# Prepare the header and data rows for the table
+data = [['Target', 'Upper Window', 'Lower Window', 'Window Size']]
+for target, details in target_details.items():
+    data.append([
+        target,
+        details['upper_offset'],
+        details['lower_offset'],
+        details['window_size']
+    ])
+
+# Write data to CSV file
+with open(TableFile, 'w', newline='') as csvfile:
+    csv_writer = csv.writer(csvfile)
+    
+    # Write rows
+    csv_writer.writerows(data)
