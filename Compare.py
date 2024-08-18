@@ -1,4 +1,4 @@
-#python3 Compare.py /MzML/*_features.csv /DiaNN/*.stats.tsv /*.mzidsummary.txt AnalysisReport.pdf
+#python3 Compare.py 20240220/221020/MzML/*_features.csv 20240220/221020/DiaNN/*.stats.tsv 20240220/221020/*.mzidsummary.txt AnalysisReport.pdf
 import pandas as pd
 import os
 import sys
@@ -24,7 +24,7 @@ ng_regex = re.compile(r"\/([^\/]*?)(\d+_)?([\d]+ng)(.*?)(_\d)?\.")
 group1_files = [f for f in sys.argv[1:] if '.features.csv' in f]
 group2_files = [f for f in sys.argv[1:] if '.stats.tsv' in f or '.mzidsummary.txt' in f]
 
-#################### Find the type of inputfile DDA or DIA
+#################### Find the type of inputfile 
 def analyze_isolation_window_target(file):
     # Load the CSV file
     df = pd.read_csv(file)
@@ -41,37 +41,41 @@ def analyze_isolation_window_target(file):
     else:
         return "DDA"
 
+
 def create_keyname(file, no_match_name, filetype):
     ng_match = ng_regex.search(file)
     if ng_match is None:
         print("No match", file)
         keyname = no_match_name
     else:
-        print(ng_match.group(1), ng_match.group(2), ng_match.group(3), ng_match.group(4))
+        #print(ng_match.group(1), ng_match.group(2), ng_match.group(3), ng_match.group(4))
         ng_part1 = ng_match.group(2)
         ng_part2 = ng_match.group(3)
 
         if ng_part1 is not None and 1 < len(ng_part1) <= 4:
-            formatted_ng = ng_part1.replace('_', ',') + ng_part2
+            ng_candidate = ng_part1.replace('_', '.') + ng_part2
+            nanogram_number = float(ng_candidate.replace('ng', ''))
         elif ng_part2.startswith("0"):
-            formatted_ng = '0,' + ng_part2[1:]
+            ng_candidate = '0.' + ng_part2[1:]
+            nanogram_number = float(ng_candidate.replace('ng', ''))
         elif ng_part1 is not None:
-            formatted_ng = ng_part1 + "_" + ng_part2
+            ng_candidate = ng_part1 + "_" + ng_part2
+            nanogram_number = float(ng_part2.replace('ng', ''))
         else:
-            formatted_ng = ng_part2
+            ng_candidate = ng_part2
+            nanogram_number = float(ng_part2.replace('ng', ''))
 
-        keyname = ng_match.group(1) + formatted_ng + ng_match.group(4)
+        keyname = ng_match.group(1) + ng_candidate + ng_match.group(4)
 
-    # Remove 'DIA' or 'DDA' from keyname (if not part of the intentional filetype addition)
+     # Remove 'DIA' or 'DDA' from keyname (if not part of the intentional filetype addition)
     keyname = re.sub(r'(dia|dda)', '', keyname, flags=re.IGNORECASE)
-
     if len(unique_filetypes) > 1:
         keyname += " " + filetype
-    return keyname
-
+    return (keyname, nanogram_number)
 unique_filetypes = set([analyze_isolation_window_target(inputfile) for inputfile in group1_files])
 
 ######################## Process Group 1 files (CSV)
+nanogram_numbers = {}
 for inputfile in group1_files:
     filetype = analyze_isolation_window_target(inputfile)
     scan_number_MSMS = 0
@@ -86,37 +90,35 @@ for inputfile in group1_files:
             # Check and count non-'N/A' values for 'MS1 Base Peak m/z'
             if row.get('MS1 Base Peak m/z') and row['MS1 Base Peak m/z'] != 'N/A':
                 scan_number_MS1 += 1
-
-        keyname = create_keyname(inputfile, os.path.basename(inputfile).replace(".features.csv", ""), filetype)
-
+        keyname, nanogram_number = create_keyname(inputfile, os.path.basename(inputfile).replace(".features.csv", ""), filetype)
+        nanogram_numbers[keyname] = nanogram_number        
         # Use keyname for dictionary operations
         if keyname not in scannumbers:
             scannumbers[keyname] = ([], [])
         scannumbers[keyname][0].append(scan_number_MSMS)
         scannumbers[keyname][1].append(scan_number_MS1)
 
+
 # Print each key and value in the desired format
 for key, (msms, ms1) in scannumbers.items():
     msms = np.average(msms)
     ms1 = np.average(ms1)
-    print(f"{key}: {msms} {ms1}")
 
 # Prepare data for plotting
-formatted_ng_labels = list(scannumbers.keys())
+ng_candidate_labels = list(scannumbers.keys())
 
 
 # Define a sorting key function
-def ng_value_sort_key(ng_item):
-    ng_key, ng_value = ng_item
-    return np.mean(ng_value[0])
+def ng_value_sort_key(keyname):
+    numeric_part = nanogram_numbers[keyname]
+    return numeric_part, keyname
     
 # Assuming ng_value_sort_key function is already defined
 # Sort NG values for consistent order in plotting
 width = 0.35
-sorted_ng_items = sorted(scannumbers.items(), key=ng_value_sort_key)
-sorted_ng_labels = [item[0] for item in sorted_ng_items]
-sorted_msms_counts = [np.mean(item[1][0]) for item in sorted_ng_items]
-sorted_ms1_counts = [np.mean(item[1][1]) for item in sorted_ng_items]
+sorted_ng_labels = sorted(scannumbers.keys(), key=ng_value_sort_key)
+sorted_msms_counts = [np.mean(scannumbers[ng][0]) for ng in sorted_ng_labels]
+sorted_ms1_counts = [np.mean(scannumbers[ng][1]) for ng in sorted_ng_labels]
 
 x = np.arange(len(sorted_ng_labels))  # the label locations, now sorted
 
@@ -140,7 +142,7 @@ fig.savefig(plot_filename, bbox_inches='tight')
 ######################### Process Group 2 files (.stats.tsv or .mzidsummary.txt)
 for inputfile in group2_files:
     precursors_identified = -1  # Default to -1
-    formatted_ng = ''
+    ng_candidate = ''
 
     # Check file type and process accordingly
     if inputfile.endswith('.stats.tsv'):
@@ -158,9 +160,9 @@ for inputfile in group2_files:
             if len(lines) >= 2:
                 precursors_identified = int(lines[1].split()[0])
         filetype = 'DDA'
-    
-    keyname = create_keyname(inputfile, os.path.basename(inputfile).replace('.stats.tsv', "").replace('.mzidsummary.txt', ""), filetype)
 
+    keyname, nanogram_number = create_keyname(inputfile, os.path.basename(inputfile).replace('.stats.tsv', "").replace('.mzidsummary.txt', ""), filetype)
+    nanogram_numbers[keyname] = nanogram_number  
     # Update the dictionary for precursors identified counts
     if precursors_identified != -1:
         if keyname not in precursors_identified_counts:
@@ -173,29 +175,26 @@ for key, precursors_counts in precursors_identified_counts.items():
     print(f"{key}: {avg_precursors_identified}")
 
 
-formatted_ng_labels_group2 = list(precursors_identified_counts.keys())
+ng_candidate_labels_group2 = list(precursors_identified_counts.keys())
 
-all_formatted_ng_labels = sorted(set(formatted_ng_labels + formatted_ng_labels_group2))
+all_ng_candidate_labels = sorted(set(ng_candidate_labels + ng_candidate_labels_group2))
 
 avg_precursors_counts = [np.mean(counts) for counts in precursors_identified_counts.values()]
 
-
 # Define a sorting key function
-def ng_value_sort_key(ng_item):
-    ng_key, ng_value = ng_item
-    return np.mean(ng_value[0])
+def ng_value_sort_key(keyname):
+    numeric_part = nanogram_numbers[keyname]
+    return numeric_part, keyname
     
 # Sort NG values and ensure consistent order for plotting
-sorted_ng_items = sorted(precursors_identified_counts.items(), key=ng_value_sort_key)
-sorted_ng_keys = [item[0] for item in sorted_ng_items]
-sorted_avg_precursors_counts = [np.mean(item[1]) for item in sorted_ng_items]
-
+sorted_ng_keys = sorted(precursors_identified_counts.keys(), key=ng_value_sort_key)
+sorted_avg_precursors_counts = [np.mean(precursors_identified_counts[ng]) for ng in sorted_ng_keys]
 
 x = np.arange(len(sorted_ng_keys))  # the label locations
 width = 0.35  # the width of the bars
 
 fig2, ax = plt.subplots()
-bars1 = ax.bar(x - width/2, sorted_avg_precursors_counts, width, label='precursor\ncounts', color='green')
+bars1 = ax.bar(x - width/2, sorted_avg_precursors_counts, width, label='precursors counts', color='green')
 
 # Add some text for labels, title, and custom x-axis tick labels, etc.
 ax.set_xlabel('Samples')
