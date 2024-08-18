@@ -1,7 +1,7 @@
 
 # Proteomics Data Processing Pipeline
 
-<img src="/SagharT/MasterThesis/raw/main/Images/Workflow.png" alt="Workflow" width="70%">
+<img src="Images/Workflow.png" alt="Workflow" width="70%">
 
 This repository hosts a collection of scripts and a Snakemake workflow designed to streamline the analysis of proteomics data, accommodating both Data-Independent Acquisition (DIA) and Data-Dependent Acquisition (DDA) methods. The pipeline handles raw data conversion, feature extraction, peptide identification, quality control and generation of detailed analytical reports.
 
