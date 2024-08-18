@@ -194,7 +194,7 @@ x = np.arange(len(sorted_ng_keys))  # the label locations
 width = 0.35  # the width of the bars
 
 fig2, ax = plt.subplots()
-bars1 = ax.bar(x - width/2, sorted_avg_precursors_counts, width, label='precursors counts', color='green')
+bars1 = ax.bar(x - width/2, sorted_avg_precursors_counts, width, label='precursors\ncounts', color='green')
 
 # Add some text for labels, title, and custom x-axis tick labels, etc.
 ax.set_xlabel('Samples')
